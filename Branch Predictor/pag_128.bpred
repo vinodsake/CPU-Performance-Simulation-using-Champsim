@@ -1,0 +1,62 @@
+#include "ooo_cpu.h"
+
+#define PBHT_SIZE 128 						// Max number of entries in PBHT 
+#define GPHT_SIZE 256						// Max number of entries in GPHT
+#define MAX_COUNTER 3 						// 2-bit saturation counter
+#define history_mask 255					// 8-bits mask
+
+int pbht_table[NUM_CPUS][PBHT_SIZE];		// PBHT table 
+int gpht_table[NUM_CPUS][GPHT_SIZE];		// GPHT table
+
+void O3_CPU::initialize_branch_predictor()
+{
+    cout << "CPU " << cpu << " pag branch predictor" << endl;
+    // Initializing PBHT & GPHT counters to zero
+	for(int i=0; i<PBHT_SIZE; i++)
+        pbht_table[cpu][i] = 0;		
+    
+	for(int i=0; i<GPHT_SIZE; i++)
+	gpht_table[cpu][i] = 0;
+}
+
+uint8_t O3_CPU::predict_branch(uint64_t ip)
+{
+    int prediction = 1;
+	// hash mapping PC to PBHT table
+    int hash = ip % PBHT_SIZE; 	
+	
+	// hash mapping PBHT table with GPHT table 
+    int pattern = pbht_table[cpu][hash] % GPHT_SIZE;	
+    
+	// If the counter value is greater than or equal to 2, predictor returns taken(1) else nottaken(0)
+	prediction = (gpht_table[cpu][pattern] >= ((MAX_COUNTER + 1)/2)) ? 1 : 0;
+
+    return prediction;
+}
+ 
+void O3_CPU::last_branch_result(uint64_t ip, uint8_t taken)
+{
+    // hash mapping PC to PBHT table
+	int hash = ip % PBHT_SIZE;
+    
+	// hash mapping PBHT table with GPHT table 
+	int pattern = pbht_table[cpu][hash] % GPHT_SIZE;	
+
+	// Pushing the latest branch result from left into PBHT entry after branch execution
+	// If taken push 1 else 0
+	// history is ANDED with history_mask to make sure not more than 8-bits are used
+    if(taken)
+		pbht_table[cpu][hash] = ((pbht_table[cpu][hash] << 1) | 1) & history_mask;
+    else 
+		pbht_table[cpu][hash] = ((pbht_table[cpu][hash] << 1) | 0) & history_mask;
+		
+	// Based on branch result counters are incremented/decremented
+	// Taken = Incremented
+	// Not-Taken = Decremented
+    if ((taken) && (gpht_table[cpu][pattern] < MAX_COUNTER))
+        gpht_table[cpu][pattern]++;
+	
+    else if ((taken == 0) && (gpht_table[cpu][pattern] > 0))
+        gpht_table[cpu][pattern]--;	
+}
+

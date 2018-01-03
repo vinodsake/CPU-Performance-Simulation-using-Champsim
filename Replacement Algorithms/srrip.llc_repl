@@ -1,0 +1,86 @@
+#include "cache.h"
+
+int rrpv[LLC_SET][LLC_WAY];	// rrpv array
+
+// initialize replacement state
+void CACHE::llc_initialize_replacement()
+{
+for(int i=0;i<LLC_SET;i++){	//set all the elements in the array to rrpv = 3
+	for(int j=0;j<LLC_WAY;j++)
+		rrpv[i][j]=3;	
+}
+}
+
+// find replacement victim
+uint32_t CACHE::llc_find_victim(uint32_t cpu, uint64_t instr_id, uint32_t set, const BLOCK *current_set, uint64_t ip, uint64_t full_addr, uint32_t type) {
+
+int max = 0;
+uint32_t way;
+
+for (int i = 0; i < LLC_WAY; i++) {		 // Find element whoes rrpv is 3 and return the way
+    if (rrpv[set][i] > max) {
+		max  = rrpv[set][i];
+		if (max == 3) {
+			way = i;
+			return(way);
+		}
+	}
+}
+
+while(max < 3) {					// If none of the elements has rrpv as 3
+	for (int j = 0; j < LLC_WAY; j++)
+		rrpv[set][j]++;				// Increment way
+	
+	for (int i = 0; i < LLC_WAY; i++) {
+			if (rrpv[set][i] > max)
+				max  = rrpv[set][i];
+				if(max == 3) {		
+					way = i;
+					return(way);
+				}	
+	}
+}	
+}
+
+// called on every cache hit and cache fill
+void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t way, uint64_t full_addr, uint64_t ip, uint64_t victim_addr, uint32_t type, uint8_t hit) {
+
+int zeroes=0;
+int twos=0;
+    
+	if(hit)	{									// Assign rrpv = 0 for hit and make sure none of the entries has rrpv = 0 except hit case
+		rrpv[set][way]=0;
+		
+		for (int i = 0; i < LLC_WAY; i++) {
+			if ((rrpv[set][i] == 0))
+				zeroes++;
+		}
+		if(zeroes == (LLC_WAY + 1)) {
+			for (uint32_t j = 0; j < LLC_WAY; j++) {
+				if ((rrpv[set][j] == 0) && j!=way)
+					rrpv[set][j]++;
+			}
+		}
+	}
+	
+	else {										// Assign rrpv = 2 for hit and make sure none of the entries has rrpv = 2 except hit case
+		rrpv[set][way]=2;
+		
+		for (int i = 0; i < LLC_WAY; i++) {
+			if ((rrpv[set][i] == 0))
+				twos++;
+		}
+		if(twos == (LLC_WAY + 1)){
+			for (uint32_t j = 0; j < LLC_WAY; j++) {
+				if ((rrpv[set][j] == 0) && j!=way)
+					rrpv[set][j]++;
+			}
+		}	
+	}
+}		
+
+
+void CACHE::llc_replacement_final_stats()
+{
+
+}

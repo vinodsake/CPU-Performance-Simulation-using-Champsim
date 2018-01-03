@@ -1,0 +1,63 @@
+#include "ooo_cpu.h"
+
+#define GPT_SIZE 1024						// Max number of entries in GPT 
+#define MAX_COUNTER 3                       // 2-bit saturation counter
+#define history_mask 1023                   // 10-bits mask
+
+int gpt_table[NUM_CPUS][GPT_SIZE];			// GPT Table
+int global_register;						// Global history register (10 bits)
+
+void O3_CPU::initialize_branch_predictor()
+{
+    cout << "CPU " << cpu << " gshare branch predictor" << endl;
+	// Initializing GPT counters to zero
+    for(int i=0; i<GPT_SIZE; i++)
+        gpt_table[cpu][i] = 0;
+}
+
+uint8_t O3_CPU::predict_branch(uint64_t ip)
+{
+    int prediction = 1;
+	// Conterting ip data type to integer
+    int new1 = (int)ip;
+	
+	// hash mapping ip with GPT table size i.e 1024
+    int new2 = new1 % GPT_SIZE; 
+
+	// XOR between ip and global history register and hashing to GPT table size
+    int hash = (new2 ^ global_register) % GPT_SIZE;	
+    
+	// If the counter value is greater than or equal to 2, predictor returns taken(1) else nottaken(0)
+	prediction = (gpt_table[cpu][hash] >= ((MAX_COUNTER + 1)/2)) ? 1 : 0;
+
+    return prediction;
+}
+
+void O3_CPU::last_branch_result(uint64_t ip, uint8_t taken)
+{
+    // Conterting ip data type to integer
+	int new1 = (int)ip;
+	// hash mapping ip with GPT table size i.e 1024
+    int new2 = new1 % GPT_SIZE; 
+
+	// XOR between ip and global history register and hashing to GPT table size
+    int hash = (new2 ^ global_register) % GPT_SIZE;
+
+   // Pushing the latest branch result from left into GHR after branch execution
+	// If taken push 1 else 0
+	// history is ANDED with history_mask to make sure not more than 10-bits are used
+   if(taken)
+	global_register = ((global_register << 1) | 1) & history_mask;
+   else 
+	global_register = ((global_register << 1) | 0) & history_mask;
+		
+    // Based on branch result counters are incremented/decremented
+	// Taken = Incremented
+	// Not-Taken = Decremented
+    if ((taken) && (gpt_table[cpu][hash] < MAX_COUNTER))
+        gpt_table[cpu][hash]++;
+	
+    else if ((taken == 0) && (gpt_table[cpu][hash] > 0))
+        gpt_table[cpu][hash]--;	
+
+}

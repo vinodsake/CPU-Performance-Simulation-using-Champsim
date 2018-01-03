@@ -1,0 +1,121 @@
+#include "cache.h"
+
+#define ENTRIES 64				// Maximum entries for prefetcher
+
+typedef struct {
+	uint64_t ip;
+	uint64_t page;
+	int last_offset;
+	int stride;
+	int confidence; 				// 0 is newly allocated, 1 means transient, 2 means steady
+	} ip_stride_pf_entry_t;
+	
+	ip_stride_pf_entry_t FIFO[ENTRIES];					// 64 entries circular FIFO
+	
+	int head = -1,tail = -1;							// Initial values of head and tail
+	
+	int IsEmpty()										// To check if FIFO is empty
+	{
+		return (head == -1 && tail == -1);
+	}
+	
+	int IsFull()										// To check if FIFO is full
+	{
+		return ((tail+1)%ENTRIES == head);
+	}
+	
+	void Push()											// Function to push entries into FIFO
+	{
+		if(IsEmpty()) {
+			head = 0;
+			tail = 0;
+		}	
+		else if(IsFull())
+		{
+			head = (head+1)%ENTRIES;					// Pop off head 
+			tail = (tail+1)%ENTRIES;					// Push tail
+		}	
+		else
+			tail = (tail+1)%ENTRIES;
+	}
+	
+void CACHE::l2c_prefetcher_initialize() 
+{
+    cout << "CPU " << cpu << " IP Stride prefetcher" << endl;
+}
+
+void CACHE::l2c_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit, uint8_t type)
+{
+	
+	uint64_t cur_page = addr >> LOG2_PAGE_SIZE;			// Extracting page number from address
+
+	uint64_t curr_offset = addr >> LOG2_BLOCK_SIZE;		// Extracting offset from address
+
+	int index;
+	
+	// Searching ip with current entires
+	for (index = 0; index < ENTRIES; index++) {
+		if (FIFO[index].ip == ip)
+			break;
+	}
+	
+	// Entry not found - could be full or empty or partially filled
+	if (index == ENTRIES) {
+		Push();
+		FIFO[tail].ip = ip;
+		FIFO[tail].page = cur_page;
+		FIFO[tail].last_offset = curr_offset;
+		FIFO[tail].stride = 0;
+		FIFO[tail].confidence = 0;
+		
+		return;											// Return from the function
+	}
+	
+	// Entry found - stride calculation
+	int temp_stride = 0;								// New stride
+	if (cur_page == FIFO[index].page) {
+		temp_stride = curr_offset - FIFO[index].last_offset;
+	
+		// Do prefetching if the stride is same more than once and pattern is repeating
+
+		if(temp_stride == FIFO[index].stride) {
+			uint64_t pf_addr = (curr_offset + temp_stride) << LOG2_BLOCK_SIZE;		// Prefetch address calculation
+			
+			// decide to prefetch or not
+			if (FIFO[index].confidence >= 1 ) {
+				prefetch_line(ip, addr, pf_addr, FILL_L2);
+				if(FIFO[index].confidence < 2)
+					FIFO[index].confidence++;
+			}	
+			else 
+				FIFO[index].confidence++;				// Increment the confidence
+		}
+		else 
+			FIFO[index].confidence = 1;					// Same page but different stride 
+		
+		// Updating the entry in FIFO
+		FIFO[index].last_offset = curr_offset;
+		FIFO[index].page = cur_page;
+		FIFO[index].stride = temp_stride;
+		FIFO[index].ip = ip;
+		
+	}
+	else {								// As the page is different.
+		FIFO[index].stride = 0; 	
+		FIFO[index].confidence = 0;
+		FIFO[index].last_offset = curr_offset;
+		FIFO[index].page = cur_page;
+		FIFO[index].ip = ip;
+		
+		return;
+	}
+}
+void CACHE::l2c_prefetcher_cache_fill(uint64_t addr, uint32_t set, uint32_t way, uint8_t prefetch, uint64_t evicted_addr)
+{
+
+}
+
+void CACHE::l2c_prefetcher_final_stats()
+{
+    cout << "CPU " << cpu << " IP Stride prefetcher final stats" << endl;
+}

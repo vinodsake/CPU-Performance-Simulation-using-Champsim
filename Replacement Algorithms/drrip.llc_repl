@@ -1,0 +1,154 @@
+#include "cache.h"
+#include <stdlib.h>	
+
+uint32_t rrpv[LLC_SET][LLC_WAY];		// array for rrpv
+uint32_t PSEL;							// variable to select srrip or brrip
+
+// initialize replacement state
+void CACHE::llc_initialize_replacement() {
+for(int i=0; i<LLC_SET; i++){			//set all the elements in the array to rrpv = 3
+	for(int j=0; j<LLC_WAY; j++)
+		rrpv[i][j]=3;	
+}
+PSEL = 512;								// Set PSEL middle element as 512 in the total size of total 1024
+}
+
+// find replacement victim
+uint32_t CACHE::llc_find_victim(uint32_t cpu, uint64_t instr_id, uint32_t set, const BLOCK *current_set, uint64_t ip, uint64_t full_addr, uint32_t type) {
+
+int i = 0;
+int j = 0;
+int max = 0;
+int way;
+
+if((set%64 == 11) && (PSEL>0) && (PSEL<1024))			// Increment PSEL if set is a leader set - BBRIP
+	PSEL++;
+else if( (set%64 == 23) && (PSEL>0) && (PSEL<1024))		// Decrement PSEL if set is a leader set - PSEL
+	PSEL--;
+
+for (i = 0; i < LLC_WAY; i++) {		// Find element whoes rrpv is 3 and return the way
+    if (rrpv[set][i] > max) {
+		max  = rrpv[set][i];
+		if (max == 3) {
+			way = i;
+			return(way);
+		}
+	}
+}
+
+while(max < 3) {					// If none of the elements has rrpv as 3
+	for (j = 0; j < LLC_WAY; j++)
+		rrpv[set][j]++;				// Increment way
+	
+	for (i = 0; i < LLC_WAY; i++) {
+			if (rrpv[set][i] > max)
+				max  = rrpv[set][i];
+				if(max == 3) {
+					way = i;
+					return(way);
+				}	
+	}
+}		
+}
+
+
+// called on every cache hit and cache fill
+void CACHE::llc_update_replacement_state(uint32_t cpu, uint32_t set, uint32_t way, uint64_t full_addr, uint64_t ip, uint64_t victim_addr, uint32_t type, uint8_t hit){
+
+uint32_t zeroes=0;
+uint32_t twos=0;
+bool TrueFalse = (rand() % 100) < 75;				// random function to genrate numbers between 0 - 100 with 75% probability
+
+	if(hit)	{										// Assign rrpv = 0 for hit and make sure none of the entries has rrpv = 0 except hit case
+		rrpv[set][way]=0;
+		
+		for (int i = 0; i < LLC_WAY; i++) {
+			if ((rrpv[set][i] == 0))
+				zeroes++;
+		}
+		if(zeroes == (LLC_WAY + 1)) {
+			for (uint32_t j = 0; j < LLC_WAY; j++) {
+				if ((rrpv[set][j] == 0) && j!=way)
+					rrpv[set][j]++;
+			}
+		}
+	}
+
+	else{										// insert cache line
+		
+		if( set%64 == 23){						// if it is leader set of SRRIP, assign rrpv = 2,and make sure none of the entries has rrpv = 2
+			rrpv[set][way]=2;
+		
+			for (int i = 0; i < LLC_WAY; i++) {
+				if ((rrpv[set][i] == 0))
+					twos++;
+			}
+			if(twos == (LLC_WAY + 1)){
+				for (uint32_t j = 0; j < LLC_WAY; j++) {
+					if ((rrpv[set][j] == 0) && j!=way)
+						rrpv[set][j]++;
+				}
+			}	
+		}
+											
+		else if(set%64 == 11){					// if it is leader set of BRRIP, assign rrpv = 2 or 3 based on randomised probability function
+			if(TrueFalse)
+					rrpv[set][way]=3;
+			else
+				rrpv[set][way]=2;
+			
+			for (int j = 0; j < LLC_WAY; j++){
+				if ((rrpv[set][j] == 0))
+					twos++;
+			}
+			
+			if(twos == (LLC_WAY + 1)){
+				for (uint32_t i = 0; i < LLC_WAY; i++){
+					if ((rrpv[set][i] == 0) && i!=way)
+						rrpv[set][i]++;
+				}
+			}	
+			
+		}
+									
+		else if((set%64 != 11) && (set%64 != 23) && (PSEL <512)){			// SRRIP follower set
+			rrpv[set][way]=2;
+		
+			for (int i = 0; i < LLC_WAY; i++) {
+				if ((rrpv[set][i] == 0))
+					twos++;
+			}
+			if(twos == (LLC_WAY + 1)){
+				for (uint32_t j = 0; j < LLC_WAY; j++) {
+					if ((rrpv[set][j] == 0) && j!=way)
+						rrpv[set][j]++;
+				}
+			}
+		}
+		
+		else if((set%64 != 11) && (set%64 != 23) && (PSEL >511)){			// BRRIP follower set and assign RRPV=2 OR 3 based on probability function.
+			if(TrueFalse)
+					rrpv[set][way]=3;
+			else
+				rrpv[set][way]=2;
+			
+			for (int j = 0; j < LLC_WAY; j++){
+				if ((rrpv[set][j] == 0))
+					twos++;
+			}
+			
+			if(twos == (LLC_WAY + 1)){
+				for (uint32_t i = 0; i < LLC_WAY; i++){
+					if ((rrpv[set][i] == 0) && i!=way)
+						rrpv[set][i]++;
+				}
+			}	
+		
+		}
+	}
+}		
+
+void CACHE::llc_replacement_final_stats()
+{
+
+}
